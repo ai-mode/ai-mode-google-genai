@@ -40,6 +40,7 @@
 
 (require 'cl-lib)
 (require 'ai-utils)
+(require 'ai-mode-adapter-api)
 (require 'url)
 
 (defgroup ai-mode-google-genai nil
@@ -82,7 +83,9 @@
     (user-input . "user")
     (assistant-response . "model")
     (action-context . "user")
-    (file-context . "user"))
+    (file-context . "user")
+    (project-context . "user")
+    (file-metadata . "user"))
   "Structure type to role mapping for Google Generative AI API.
 Google Gemini API supports 'user' and 'model' roles."
   :type '(alist :key-type (choice string symbol)
@@ -100,11 +103,11 @@ Google Gemini API supports 'user' and 'model' roles."
   "Return the role for the given STRUCT-TYPE using customizable role mapping."
   (let* ((role-mapping ai-mode-google-genai--struct-type-role-mapping)
          (type (if (symbolp struct-type) (symbol-name struct-type) struct-type))
-         (role (or (if (symbolp struct-type)
-                       (cdr (cl-assoc struct-type role-mapping))
-                     (cdr (cl-assoc type role-mapping :test #'equal)))
-                   "user")))
-    role))
+         (struct-type-string (if (symbolp struct-type) (symbol-name struct-type) struct-type))
+         (role (if (symbolp struct-type)
+                   (cdr (cl-assoc struct-type role-mapping))
+                 (cdr (cl-assoc type role-mapping :test #'equal)))))
+    (or role struct-type-string)))
 
 (defun ai-mode-google-genai--convert-struct (item role-mapping)
   "Convert a single ITEM into Google Gemini message format using ROLE-MAPPING."
@@ -113,13 +116,13 @@ Google Gemini API supports 'user' and 'model' roles."
     (let* ((role (cdr (assoc "role" item)))
            (model-role (or (cdr (assoc role role-mapping))
                            (ai-mode-google-genai--get-role-for-struct-type role)))
-           (content (cdr (assoc "content" item))))
+           (content (ai-mode-adapter--get-struct-content item)))
       `(("role" . ,model-role)
         ("parts" . (((text . ,content)))))))
    ((plistp item)
-    (let* ((type (plist-get item :type))
+    (let* ((type (ai-mode-adapter--get-struct-type item))
            (model-role (ai-mode-google-genai--get-role-for-struct-type type))
-           (content (plist-get item :content)))
+           (content (ai-mode-adapter--get-struct-content item)))
       `(("role" . ,model-role)
         ("parts" . (((text . ,content)))))))))
 
@@ -227,24 +230,37 @@ Google Gemini API supports 'user' and 'model' roles."
                         `((:rest-params . ,rest-params)))))
     model))
 
+
 (defun ai-mode-google-genai--get-models ()
   "Retrieve the list of available models."
   (list
    ;; Latest models with extended variations
-   (ai-mode-google-genai--make-model "gemini-2.5-pro-preview-06-05" :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-2.5-pro-preview-06-05" :temperature 0.1 :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-2.5-pro-preview-06-05" :temperature 1.0 :max-tokens 65536)
+   (ai-mode-google-genai--make-model "gemini-2.5-pro-preview-06-05" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-pro-preview-06-05" :temperature 0.1 :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-pro-preview-06-05" :temperature 1.0 :max-tokens 64000)
 
-   (ai-mode-google-genai--make-model "gemini-2.5-flash-preview-05-20" :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-2.5-flash-preview-05-20" :temperature 0.1 :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-2.5-flash-preview-05-20" :temperature 1.0 :max-tokens 65536)
+   (ai-mode-google-genai--make-model "gemini-2.5-flash-preview-05-20" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-flash-preview-05-20" :temperature 0.1 :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-flash-preview-05-20" :temperature 1.0 :max-tokens 64000)
+
+   (ai-mode-google-genai--make-model "gemini-2.5-flash-lite-preview-06-17" :max-tokens 64000)
 
    ;; Stable versions
-   (ai-mode-google-genai--make-model "gemini-2.0-flash" :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-2.0-flash-lite" :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-1.5-pro" :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-1.5-flash" :max-tokens 65536)
-   (ai-mode-google-genai--make-model "gemini-1.5-flash-8b" :max-tokens 65536)))
+   (ai-mode-google-genai--make-model "gemini-2.5-pro" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-pro" :temperature 0.1 :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-pro" :temperature 1.0 :max-tokens 64000)
+
+   (ai-mode-google-genai--make-model "gemini-2.5-flash" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-flash" :temperature 0.1 :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.5-flash" :temperature 1.0 :max-tokens 64000)
+
+   (ai-mode-google-genai--make-model "gemini-2.5-flash-lite" :max-tokens 64000)
+
+   (ai-mode-google-genai--make-model "gemini-2.0-flash" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-2.0-flash-lite" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-1.5-pro" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-1.5-flash" :max-tokens 64000)
+   (ai-mode-google-genai--make-model "gemini-1.5-flash-8b" :max-tokens 64000)))
 
 (provide 'ai-mode-google-genai)
 ;;; ai-mode-google-genai.el ends here
