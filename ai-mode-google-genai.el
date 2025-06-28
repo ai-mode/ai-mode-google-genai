@@ -141,6 +141,21 @@ Google Gemini API supports 'user' and 'model' roles."
   "Convert CANDIDATES into internal representation."
   (mapcar #'ai-mode-google-genai--make-types-struct candidates))
 
+(defun ai-mode-google-genai--convert-usage-metadata-to-plist (usage-metadata)
+  "Convert USAGE-METADATA from Google Generative AI API response to a plist.
+Maps Google API field names to standardized keys:
+- promptTokenCount -> :input-tokens
+- thoughtsTokenCount -> :thoughts-tokens
+- candidatesTokenCount -> :output-tokens
+- totalTokenCount -> :total-tokens"
+  (let ((input-tokens (cdr (assoc 'promptTokenCount usage-metadata)))
+        (thoughts-tokens (cdr (assoc 'thoughtsTokenCount usage-metadata)))
+        (output-tokens (cdr (assoc 'candidatesTokenCount usage-metadata)))
+        (total-tokens (cdr (assoc 'totalTokenCount usage-metadata))))
+    (list :input-tokens input-tokens
+          :thoughts-tokens thoughts-tokens
+          :output-tokens output-tokens
+          :total-tokens total-tokens)))
 
 (cl-defun ai-mode-google-genai--convert-context-to-request-data (context model &key (extra-params nil) enable-caching)
   "Convert CONTEXT associative array to request data format.
@@ -183,11 +198,14 @@ does not support prompt caching. This parameter is provided for API compatibilit
     (ai-common--make-typed-struct message 'error :additional-props additional-props)))
 
 
-(cl-defun ai-mode-google-genai--async-send-context (context model &key success-callback (fail-callback nil) enable-caching (extra-params nil))
+(cl-defun ai-mode-google-genai--async-send-context (context model &key success-callback (fail-callback nil) update-usage-callback enable-caching (extra-params nil) )
   "Asynchronously execute CONTEXT, extract message from response and call CALLBACK.
 
 When ENABLE-CACHING is non-nil, it is ignored as Google Generative AI API
-does not support prompt caching. This parameter is provided for API compatibility."
+does not support prompt caching. This parameter is provided for API compatibility.
+
+When UPDATE-USAGE-CALLBACK is provided, it will be called with usage statistics
+converted from the response's usageMetadata field."
   (let* ((api-url (map-elt model :api-url))
          (request-data (ai-mode-google-genai--convert-context-to-request-data
                         context model
@@ -201,7 +219,11 @@ does not support prompt caching. This parameter is provided for API compatibilit
            (when fail-callback
              (funcall fail-callback request-data (ai-mode-google-genai--json-error-to-typed-struct response)))
          (let* ((candidates (cdr (assoc 'candidates response)))
-                (messages (ai-mode-google-genai--convert-items-to-context-structs candidates)))
+                (messages (ai-mode-google-genai--convert-items-to-context-structs candidates))
+                (usage-metadata (cdr (assoc 'usageMetadata response))))
+           (when (and update-usage-callback usage-metadata)
+             (let ((usage-stats (ai-mode-google-genai--convert-usage-metadata-to-plist usage-metadata)))
+               (funcall update-usage-callback usage-stats)))
            (funcall success-callback messages))))
      :fail-callback fail-callback
      :extra-params extra-params)))
