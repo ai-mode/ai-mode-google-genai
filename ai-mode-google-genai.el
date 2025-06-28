@@ -76,16 +76,18 @@
     (assistant . "model")
     (user . "user")
     (agent-instructions . "user")
+    (buffer-bound-prompt . "user")
     (global-system-prompt . "user")
     (global-memory-item . "user")
-    (buffer-bound-prompt . "user")
     (additional-context . "user")
     (user-input . "user")
     (assistant-response . "model")
     (action-context . "user")
     (file-context . "user")
     (project-context . "user")
-    (file-metadata . "user"))
+    (file-metadata . "user")
+    (project-ai-summary . "user")
+    (memory . "user"))
   "Structure type to role mapping for Google Generative AI API.
 Google Gemini API supports 'user' and 'model' roles."
   :type '(alist :key-type (choice string symbol)
@@ -110,29 +112,21 @@ Google Gemini API supports 'user' and 'model' roles."
     (or role struct-type-string)))
 
 (defun ai-mode-google-genai--convert-struct (item role-mapping)
-  "Convert a single ITEM into Google Gemini message format using ROLE-MAPPING."
-  (cond
-   ((and (listp item) (consp (car item)) (stringp (caar item)))
-    (let* ((role (cdr (assoc "role" item)))
-           (model-role (or (cdr (assoc role role-mapping))
-                           (ai-mode-google-genai--get-role-for-struct-type role)))
-           (content (ai-mode-adapter--get-struct-content item)))
-      `(("role" . ,model-role)
-        ("parts" . (((text . ,content)))))))
-   ((plistp item)
-    (let* ((type (ai-mode-adapter--get-struct-type item))
-           (model-role (ai-mode-google-genai--get-role-for-struct-type type))
-           (content (ai-mode-adapter--get-struct-content item)))
-      `(("role" . ,model-role)
-        ("parts" . (((text . ,content)))))))))
+  "Convert a single ITEM plist into Google Gemini message format using ROLE-MAPPING."
+  (let* ((type (ai-mode-adapter-api-get-struct-type item))
+         (model-role (ai-mode-google-genai--get-role-for-struct-type type))
+         (content (ai-mode-adapter-api-get-struct-content item)))
+    `(("role" . ,model-role)
+      ("parts" . (((text . ,content)))))))
 
 
 (defun ai-mode-google-genai--structs-to-model-messages (messages model)
   "Convert common CONTEXT structure into Google Gemini API messages."
-  (let* ((role-mapping (map-elt model :role-mapping)))
+  (let* ((prepared-messages (ai-mode-adapter-api-prepare-messages messages))
+         (role-mapping (map-elt model :role-mapping)))
     (delq nil (mapcar (lambda (item)
                         (ai-mode-google-genai--convert-struct item role-mapping))
-                      messages))))
+                      prepared-messages))))
 
 (defun ai-mode-google-genai--make-types-struct (candidate)
   "Convert a single CANDIDATE into an internal typed structure."
@@ -148,8 +142,11 @@ Google Gemini API supports 'user' and 'model' roles."
   (mapcar #'ai-mode-google-genai--make-types-struct candidates))
 
 
-(cl-defun ai-mode-google-genai--convert-context-to-request-data (context model &key (extra-params nil))
-  "Convert CONTEXT associative array to request data format."
+(cl-defun ai-mode-google-genai--convert-context-to-request-data (context model &key (extra-params nil) enable-caching)
+  "Convert CONTEXT associative array to request data format.
+
+When ENABLE-CACHING is non-nil, it is ignored as Google Generative AI API
+does not support prompt caching. This parameter is provided for API compatibility."
   (let* ((temperature (map-elt model :temperature))
          (max-tokens (map-elt model :max-tokens ai-mode-google-genai--default-max-tokens))
          (model-rest-params (map-elt model :rest-params))
@@ -186,10 +183,16 @@ Google Gemini API supports 'user' and 'model' roles."
     (ai-common--make-typed-struct message 'error :additional-props additional-props)))
 
 
-(cl-defun ai-mode-google-genai--async-send-context (context model &key success-callback (fail-callback nil) (extra-params nil))
-  "Asynchronously execute CONTEXT, extract message from response and call CALLBACK."
+(cl-defun ai-mode-google-genai--async-send-context (context model &key success-callback (fail-callback nil) enable-caching (extra-params nil))
+  "Asynchronously execute CONTEXT, extract message from response and call CALLBACK.
+
+When ENABLE-CACHING is non-nil, it is ignored as Google Generative AI API
+does not support prompt caching. This parameter is provided for API compatibility."
   (let* ((api-url (map-elt model :api-url))
-         (request-data (ai-mode-google-genai--convert-context-to-request-data context model :extra-params extra-params)))
+         (request-data (ai-mode-google-genai--convert-context-to-request-data
+                        context model
+                        :extra-params extra-params
+                        :enable-caching enable-caching)))
     (ai-mode-google-genai--async-api-request
      api-url
      request-data
