@@ -39,7 +39,6 @@
 ;; Happy coding! ;)
 
 (require 'cl-lib)
-(require 'ai-utils)
 (require 'ai-mode-adapter-api)
 (require 'url)
 
@@ -186,7 +185,7 @@ does not support prompt caching. This parameter is provided for API compatibilit
          (timeout (map-elt extra-params :timeout ai-mode-google-genai-request-timeout))
          (encoded-request-data (encode-coding-string (json-encode request-data) 'utf-8))
          (headers  `(("Content-Type" . "application/json"))))
-    (ai-utils--async-request url-with-key "POST" encoded-request-data headers callback :timeout timeout)))
+    (ai-mode-adapter-api-async-request url-with-key "POST" encoded-request-data headers callback :timeout timeout)))
 
 
 (defun ai-mode-google-genai--json-error-to-typed-struct (json-response)
