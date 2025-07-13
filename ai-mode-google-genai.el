@@ -176,16 +176,20 @@ does not support prompt caching. This parameter is provided for API compatibilit
                    model-rest-params)))
     payload))
 
-(cl-defun ai-mode-google-genai--async-api-request (url request-data callback &key (fail-callback nil) (extra-params nil))
-  "Perform an asynchronous execution of REQUEST-DATA to the Google Generative AI API."
+(cl-defun ai-mode-google-genai--async-api-request (url request-data callback &key (fail-callback nil) (extra-params nil) (request-id nil))
+  "Perform an asynchronous execution of REQUEST-DATA to the Google Generative AI API.
+REQUEST-ID is an optional unique identifier for the request."
   (when (null ai-mode-google-genai--api-key)
     (error "Google Generative AI API key is not set"))
 
   (let* ((url-with-key (format "%s?key=%s" url ai-mode-google-genai--api-key))
          (timeout (map-elt extra-params :timeout ai-mode-google-genai-request-timeout))
          (encoded-request-data (encode-coding-string (json-encode request-data) 'utf-8))
-         (headers  `(("Content-Type" . "application/json"))))
-    (ai-mode-adapter-api-async-request url-with-key "POST" encoded-request-data headers callback :timeout timeout)))
+         (headers  `(("Content-Type" . "application/json")))
+         (actual-request-id (or request-id (ai-common--generate-request-id))))
+    (ai-mode-adapter-api-async-request url-with-key "POST" encoded-request-data headers callback
+                                       :timeout timeout
+                                       :request-id actual-request-id)))
 
 
 (defun ai-mode-google-genai--json-error-to-typed-struct (json-response)
@@ -197,8 +201,9 @@ does not support prompt caching. This parameter is provided for API compatibilit
     (ai-common--make-typed-struct message 'error :additional-props additional-props)))
 
 
-(cl-defun ai-mode-google-genai--async-send-context (context model &key success-callback (fail-callback nil) update-usage-callback enable-caching (extra-params nil) )
+(cl-defun ai-mode-google-genai--async-send-context (context model &key success-callback (fail-callback nil) update-usage-callback enable-caching (extra-params nil) (request-id nil))
   "Asynchronously execute CONTEXT, extract message from response and call CALLBACK.
+REQUEST-ID is an optional unique identifier for the request.
 
 When ENABLE-CACHING is non-nil, it is ignored as Google Generative AI API
 does not support prompt caching. This parameter is provided for API compatibility.
@@ -206,6 +211,7 @@ does not support prompt caching. This parameter is provided for API compatibilit
 When UPDATE-USAGE-CALLBACK is provided, it will be called with usage statistics
 converted from the response's usageMetadata field."
   (let* ((api-url (map-elt model :api-url))
+         (actual-request-id (or request-id (ai-common--generate-request-id)))
          (request-data (ai-mode-google-genai--convert-context-to-request-data
                         context model
                         :extra-params extra-params
@@ -225,7 +231,8 @@ converted from the response's usageMetadata field."
                (funcall update-usage-callback usage-stats)))
            (funcall success-callback messages))))
      :fail-callback fail-callback
-     :extra-params extra-params)))
+     :extra-params extra-params
+     :request-id actual-request-id)))
 
 (defun ai-mode-google-genai--setup-assistant-backend ()
   "Set up the backend for the assistant model."
