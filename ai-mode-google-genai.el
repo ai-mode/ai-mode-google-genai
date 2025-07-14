@@ -225,11 +225,11 @@ converted from the response's usageMetadata field."
              (funcall fail-callback request-data (ai-mode-google-genai--json-error-to-typed-struct response)))
          (let* ((candidates (cdr (assoc 'candidates response)))
                 (messages (ai-mode-google-genai--convert-items-to-context-structs candidates))
-                (usage-metadata (cdr (assoc 'usageMetadata response))))
+                (usage-metadata (cdr (assoc 'usageMetadata response)))
+                (usage-stats (ai-mode-google-genai--convert-usage-metadata-to-plist usage-metadata)))
            (when (and update-usage-callback usage-metadata)
-             (let ((usage-stats (ai-mode-google-genai--convert-usage-metadata-to-plist usage-metadata)))
-               (funcall update-usage-callback usage-stats)))
-           (funcall success-callback messages))))
+             (funcall update-usage-callback usage-stats))
+           (funcall success-callback messages usage-stats))))
      :fail-callback fail-callback
      :extra-params extra-params
      :request-id actual-request-id)))
